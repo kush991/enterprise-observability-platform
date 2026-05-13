@@ -1,0 +1,71 @@
+# Alloy Helm Values — Test Environment
+# Mirrors dev config with test-specific PVC and endpoints
+
+alloy:
+  image:
+    repository: <ECR_REGISTRY>/observability/alloy
+    tag: "0.0.10223571-test"
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  env:
+    - name: HOST_IP
+      valueFrom:
+        fieldRef:
+          fieldPath: status.hostIP
+    - name: NODE_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+
+  volumes:
+    - name: HOME_PV
+      persistentVolumeClaim:
+        claimName: home-observability-test
+
+  volumeMounts:
+    - name: HOME_PV
+      mountPath: /var/lib/alloy/data
+
+  service:
+    enabled: true
+    type: ClusterIP
+    ports:
+      - name: otlp-grpc
+        port: 4317
+        targetPort: 4317
+      - name: otlp-http
+        port: 4318
+        targetPort: 4318
+      - name: faro
+        port: 12347
+        targetPort: 12347
+      - name: http
+        port: 12345
+        targetPort: 12345
+      - name: metrics
+        port: 9090
+        targetPort: 9090
+
+  ConfigMap:
+    enabled: true
+    create: true
+    name: alloy-config
+    configdata:
+      ALLOY_CONFIG: "true"
+
+  configMap:
+    enabled: true
+    create: true
+    name: alloy-config
+
+  storageClassName: efs-sc
+  extraPodLabels:
+    app: prometheus

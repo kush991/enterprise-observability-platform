@@ -1,0 +1,111 @@
+// =============================================================================
+// Grafana Alloy Pipeline Configuration
+// Unified telemetry collector for metrics, logs, and traces
+// =============================================================================
+
+// ─── Faro Receiver ──────────────────────────────────────────────────────────
+// Receives frontend telemetry from Angular app via Grafana Faro SDK
+faro.receiver "default" {
+  server {
+    listen_address = "0.0.0.0"
+    listen_port    = 12347
+    cors_allowed_origins = ["*"]
+  }
+
+  output {
+    logs   = [loki.write.default.receiver]
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+// ─── OTLP Receiver ─────────────────────────────────────────────────────────
+// Receives OpenTelemetry data from backend services
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    logs    = [otelcol.exporter.loki.default.input]
+    traces  = [otelcol.exporter.otlp.tempo.input]
+    metrics = [otelcol.exporter.prometheus.default.input]
+  }
+}
+
+// ─── Prometheus Scrape: Kubernetes cAdvisor ─────────────────────────────────
+// Scrapes container-level metrics from kubelet cAdvisor endpoint
+prometheus.scrape "cadvisor" {
+  targets = [{
+    __address__ = env("HOST_IP") + ":10250",
+    __metrics_path__ = "/metrics/cadvisor",
+    __scheme__ = "https",
+  }]
+
+  bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+  tls_config {
+    insecure_skip_verify = true
+  }
+
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+// ─── Prometheus Scrape: Node Exporter ───────────────────────────────────────
+// Scrapes node-level system metrics
+prometheus.scrape "node_exporter" {
+  targets = [{
+    __address__ = env("HOST_IP") + ":9100",
+  }]
+
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+// ─── Prometheus Scrape: Kube State Metrics ──────────────────────────────────
+// Scrapes Kubernetes object state metrics
+prometheus.scrape "kube_state_metrics" {
+  targets = [{
+    __address__ = "kube-state-metrics.observability.svc:8080",
+  }]
+
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+// ─── Prometheus Remote Write ────────────────────────────────────────────────
+// Sends collected metrics to Prometheus
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://prometheus.observability.svc:9090/api/v1/write"
+  }
+}
+
+// ─── Loki Write ─────────────────────────────────────────────────────────────
+// Sends collected logs to Loki
+loki.write "default" {
+  endpoint {
+    url = "http://loki.observability.svc:3100/loki/api/v1/push"
+  }
+}
+
+// ─── OTLP Exporter: Tempo ───────────────────────────────────────────────────
+// Sends collected traces to Tempo
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo.observability.svc:4317"
+    tls {
+      insecure = true
+    }
+  }
+}
+
+// ─── OTLP Exporter: Loki (from OTLP) ───────────────────────────────────────
+otelcol.exporter.loki "default" {
+  forward_to = [loki.write.default.receiver]
+}
+
+// ─── OTLP Exporter: Prometheus (from OTLP) ─────────────────────────────────
+otelcol.exporter.prometheus "default" {
+  forward_to = [prometheus.remote_write.default.receiver]
+}

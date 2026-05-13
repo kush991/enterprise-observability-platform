@@ -1,0 +1,18 @@
+# PersistentVolumeClaim — Dev Environment
+# Backed by Amazon EFS for ReadWriteMany access across nodes
+# Required BEFORE deploying Alloy — pipeline cannot create PVCs
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: home-observability-dev
+  namespace: observability
+  labels:
+    app: alloy
+    environment: dev
+spec:
+  accessModes:
+    - ReadWriteMany     # EFS supports multi-node read/write
+  storageClassName: efs-sc
+  resources:
+    requests:
+      storage: 10Gi

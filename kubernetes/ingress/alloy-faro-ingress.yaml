@@ -1,0 +1,52 @@
+# Dedicated ALB Ingress for Alloy Faro Telemetry
+# Creates a SEPARATE ALB — does NOT share with the main application ALB
+# This isolation prevents any risk to production application traffic
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: alloy-faro-ingress
+  namespace: observability
+  annotations:
+    # ALB Configuration
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+
+    # TLS Configuration — Wildcard cert covers all subdomains
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:<REGION>:<ACCOUNT_ID>:certificate/<CERT_ID>
+
+    # Health Check — Uses Alloy's built-in /ready endpoint
+    alb.ingress.kubernetes.io/healthcheck-path: /ready
+    alb.ingress.kubernetes.io/healthcheck-port: "12345"
+    alb.ingress.kubernetes.io/success-codes: "200"
+
+    # IMPORTANT: Do NOT use group.name annotation!
+    # Using group.name merges this with the main app ALB and can cause
+    # ALB reconciliation issues that take down production traffic.
+    # Each namespace should have its own dedicated ALB.
+
+spec:
+  rules:
+    - host: alloy.example.com  # Replace with actual domain
+      http:
+        paths:
+          # Faro SDK telemetry endpoint
+          - path: /collect
+            pathType: Prefix
+            backend:
+              service:
+                name: alloy
+                port:
+                  number: 12347
+
+          # OTLP HTTP endpoint for backend services
+          - path: /alloy
+            pathType: Prefix
+            backend:
+              service:
+                name: alloy
+                port:
+                  number: 4318

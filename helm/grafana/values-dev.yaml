@@ -1,0 +1,92 @@
+# Grafana Helm Values — Dev Environment
+# Includes Vault integration for secret management
+
+grafana:
+  image:
+    repository: grafana/grafana
+    tag: "10.4.1"
+
+  replicas: 1
+
+  persistence:
+    enabled: true
+    storageClassName: efs-sc
+    size: 1Gi
+
+  # --- Vault Agent Init Container ---
+  # Fetches database credentials from HashiCorp Vault at startup
+  extraInitContainers:
+    - name: vault-agent-init
+      image: hashicorp/vault:1.15
+      command: ["vault", "agent", "-config=/etc/vault/agent.hcl"]
+      volumeMounts:
+        - name: vault-config
+          mountPath: /etc/vault
+        - name: vault-secrets
+          mountPath: /vault/secrets
+
+  # --- Data Sources ---
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://prometheus.observability.svc:9090
+          access: proxy
+          isDefault: true
+
+        - name: Loki
+          type: loki
+          url: http://loki.observability.svc:3100
+          access: proxy
+
+        - name: Tempo
+          type: tempo
+          url: http://tempo.observability.svc:3200
+          access: proxy
+          jsonData:
+            tracesToLogs:
+              datasourceUid: loki
+              filterByTraceID: true
+            serviceMap:
+              datasourceUid: prometheus
+
+  # --- Dashboard Provisioning ---
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: default
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards
+
+  # --- Service ---
+  service:
+    enabled: true
+    type: ClusterIP
+    port: 3000
+
+  # --- Resources ---
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # --- Environment ---
+  env:
+    GF_SECURITY_ADMIN_PASSWORD: "${VAULT_GRAFANA_ADMIN_PASSWORD}"
+    GF_DATABASE_TYPE: postgres
+    GF_DATABASE_HOST: "${VAULT_RDS_ENDPOINT}:5432"
+    GF_DATABASE_NAME: grafana
+    GF_DATABASE_USER: "${VAULT_RDS_USERNAME}"
+    GF_DATABASE_PASSWORD: "${VAULT_RDS_PASSWORD}"
+    GF_DATABASE_SSL_MODE: require

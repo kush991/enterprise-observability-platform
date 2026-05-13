@@ -1,0 +1,16 @@
+# PersistentVolumeClaim — Test Environment
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: home-observability-test
+  namespace: observability
+  labels:
+    app: alloy
+    environment: test
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: efs-sc
+  resources:
+    requests:
+      storage: 10Gi

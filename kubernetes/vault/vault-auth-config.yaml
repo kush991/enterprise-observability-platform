@@ -1,0 +1,41 @@
+# Vault Kubernetes Auth Configuration
+# Binds Grafana ServiceAccount to Vault role for secret access
+# CRITICAL: bound_service_account_namespaces must include ALL namespaces
+#           where the service runs (e.g., after namespace migration)
+
+# --- How to Apply ---
+# vault write auth/kubernetes/role/grafana \
+#   bound_service_account_names=grafana \
+#   bound_service_account_namespaces=app,observability \
+#   policies=grafana-policy \
+#   ttl=1h
+
+# --- Vault Policy (grafana-policy) ---
+# path "secret/data/observability/grafana/*" {
+#   capabilities = ["read", "list"]
+# }
+#
+# path "database/creds/grafana-role" {
+#   capabilities = ["read"]
+# }
+
+# --- Kubernetes Auth Method Config ---
+# This is set once per cluster:
+# vault auth enable kubernetes
+# vault write auth/kubernetes/config \
+#   token_reviewer_jwt="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" \
+#   kubernetes_host="https://kubernetes.default.svc:443" \
+#   kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+
+---
+# ServiceAccount for Grafana (created by Helm, documented here for reference)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: grafana
+  annotations:
+    # EKS IRSA annotation for AWS IAM role if needed
+    # eks.amazonaws.com/role-arn: arn:aws:iam::<ACCOUNT_ID>:role/grafana-role

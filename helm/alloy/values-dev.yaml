@@ -1,0 +1,110 @@
+# Grafana Alloy Helm Values — Dev Environment
+# Deploys as DaemonSet for per-node telemetry collection
+
+alloy:
+  image:
+    repository: <ECR_REGISTRY>/observability/alloy
+    tag: "0.0.10223571-dev"
+    pullPolicy: IfNotPresent
+
+  # --- Resource Management ---
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # --- Environment Variables ---
+  env:
+    - name: HOST_IP
+      valueFrom:
+        fieldRef:
+          fieldPath: status.hostIP
+    - name: NODE_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+
+  # --- Persistent Storage ---
+  volumes:
+    - name: HOME_PV
+      persistentVolumeClaim:
+        claimName: home-observability-dev
+  volumeMounts:
+    - name: HOME_PV
+      mountPath: /var/lib/alloy/data
+
+  # --- Networking ---
+  service:
+    enabled: true
+    type: ClusterIP
+    ports:
+      - name: otlp-grpc
+        port: 4317
+        targetPort: 4317
+        protocol: TCP
+      - name: otlp-http
+        port: 4318
+        targetPort: 4318
+        protocol: TCP
+      - name: faro
+        port: 12347
+        targetPort: 12347
+        protocol: TCP
+      - name: http
+        port: 12345
+        targetPort: 12345
+        protocol: TCP
+      - name: metrics
+        port: 9090
+        targetPort: 9090
+        protocol: TCP
+
+  # --- Health Checks ---
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 12345
+    initialDelaySeconds: 10
+    periodSeconds: 10
+
+  livenessProbe:
+    httpGet:
+      path: /ready
+      port: 12345
+    initialDelaySeconds: 30
+    periodSeconds: 15
+
+  # --- Metrics ---
+  metrics:
+    enabled: false
+
+  # --- Routes ---
+  routes:
+    enabled: false
+
+  # --- Alloy Configuration ---
+  # Capital 'C' ConfigMap — custom config data passed to Alloy
+  ConfigMap:
+    enabled: true
+    create: true
+    name: alloy-config
+    configdata:
+      ALLOY_CONFIG: "true"
+
+  # Lowercase 'c' configMap — Helm chart reads THIS one
+  configMap:
+    enabled: true
+    create: true
+    name: alloy-config
+
+  # --- Extra Labels ---
+  storageClassName: efs-sc
+  extraPodLabels:
+    app: prometheus
+
+  # --- Extra ConfigMap ---
+  configOverride:
+    enabled: false

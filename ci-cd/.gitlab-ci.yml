@@ -1,0 +1,178 @@
+# GitLab CI/CD Pipeline — Observability Stack Deployment
+# Deploys Alloy, Grafana, Prometheus, Loki, Tempo to EKS
+
+stages:
+  - lint
+  - diff
+  - deploy-dev
+  - verify
+  - deploy-test
+  - deploy-prod
+
+variables:
+  HELM_VERSION: "3.14.0"
+  KUBE_NAMESPACE: observability
+  # Per-environment PVC names — set in GitLab CI/CD variables
+  # HOME_PV_DEV: home-observability-dev
+  # HOME_PV_TEST: home-observability-test
+  # HOME_PV_PROD: home-observability-prod
+
+# ─── Templates ───────────────────────────────────────────────────────────────
+
+.helm_base: &helm_base
+  image: alpine/helm:${HELM_VERSION}
+  before_script:
+    - aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${AWS_REGION}
+
+# ─── Lint Stage ──────────────────────────────────────────────────────────────
+
+helm-lint:
+  stage: lint
+  <<: *helm_base
+  script:
+    - helm lint helm/alloy/ -f helm/alloy/values-dev.yaml
+    - helm lint helm/grafana/ -f helm/grafana/values-dev.yaml
+    - helm lint helm/prometheus/ -f helm/prometheus/values-dev.yaml
+    - helm lint helm/loki/ -f helm/loki/values-dev.yaml
+    - helm lint helm/tempo/ -f helm/tempo/values-dev.yaml
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+
+# ─── Diff Stage ──────────────────────────────────────────────────────────────
+
+helm-diff:
+  stage: diff
+  <<: *helm_base
+  script:
+    - helm diff upgrade alloy grafana/alloy -n ${KUBE_NAMESPACE} -f helm/alloy/values-dev.yaml
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+  allow_failure: true
+
+# ─── Deploy Dev ──────────────────────────────────────────────────────────────
+
+deploy-alloy-dev:
+  stage: deploy-dev
+  <<: *helm_base
+  environment:
+    name: dev
+  script:
+    - |
+      helm upgrade --install alloy grafana/alloy \
+        -n ${KUBE_NAMESPACE} \
+        -f helm/alloy/values-dev.yaml \
+        --set "alloy.volumes[0].persistentVolumeClaim.claimName=${HOME_PV_DEV}" \
+        --wait --timeout 300s
+    - kubectl rollout status daemonset/alloy -n ${KUBE_NAMESPACE} --timeout=120s
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+deploy-grafana-dev:
+  stage: deploy-dev
+  <<: *helm_base
+  environment:
+    name: dev
+  script:
+    - |
+      helm upgrade --install grafana grafana/grafana \
+        -n ${KUBE_NAMESPACE} \
+        -f helm/grafana/values-dev.yaml \
+        --wait --timeout 300s
+    - kubectl rollout status statefulset/grafana -n ${KUBE_NAMESPACE} --timeout=180s
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+deploy-prometheus-dev:
+  stage: deploy-dev
+  <<: *helm_base
+  environment:
+    name: dev
+  script:
+    - |
+      helm upgrade --install prometheus prometheus-community/prometheus \
+        -n ${KUBE_NAMESPACE} \
+        -f helm/prometheus/values-dev.yaml \
+        --wait --timeout 300s
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+deploy-loki-dev:
+  stage: deploy-dev
+  <<: *helm_base
+  environment:
+    name: dev
+  script:
+    - |
+      helm upgrade --install loki grafana/loki \
+        -n ${KUBE_NAMESPACE} \
+        -f helm/loki/values-dev.yaml \
+        --wait --timeout 300s
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+deploy-tempo-dev:
+  stage: deploy-dev
+  <<: *helm_base
+  environment:
+    name: dev
+  script:
+    - |
+      helm upgrade --install tempo grafana/tempo \
+        -n ${KUBE_NAMESPACE} \
+        -f helm/tempo/values-dev.yaml \
+        --wait --timeout 300s
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+# ─── Verify ──────────────────────────────────────────────────────────────────
+
+verify-deployment:
+  stage: verify
+  <<: *helm_base
+  script:
+    - echo "--- Pod Status ---"
+    - kubectl get pods -n ${KUBE_NAMESPACE}
+    - echo "--- PVC Status ---"
+    - kubectl get pvc -n ${KUBE_NAMESPACE}
+    - echo "--- Ingress Status ---"
+    - kubectl get ingress -n ${KUBE_NAMESPACE}
+    - echo "--- Health Checks ---"
+    - kubectl exec -n ${KUBE_NAMESPACE} deploy/alloy -- wget -qO- http://localhost:12345/ready
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+# ─── Deploy Test ─────────────────────────────────────────────────────────────
+
+deploy-alloy-test:
+  stage: deploy-test
+  <<: *helm_base
+  environment:
+    name: test
+  script:
+    - |
+      helm upgrade --install alloy grafana/alloy \
+        -n ${KUBE_NAMESPACE} \
+        -f helm/alloy/values-test.yaml \
+        --set "alloy.volumes[0].persistentVolumeClaim.claimName=${HOME_PV_TEST}" \
+        --wait --timeout 300s
+  rules:
+    - if: $CI_COMMIT_BRANCH == "release/*"
+  when: manual
+
+# ─── Deploy Prod ─────────────────────────────────────────────────────────────
+
+deploy-alloy-prod:
+  stage: deploy-prod
+  <<: *helm_base
+  environment:
+    name: production
+  script:
+    - |
+      helm upgrade --install alloy grafana/alloy \
+        -n ${KUBE_NAMESPACE} \
+        -f helm/alloy/values-prod.yaml \
+        --set "alloy.volumes[0].persistentVolumeClaim.claimName=${HOME_PV_PROD}" \
+        --wait --timeout 300s
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  when: manual

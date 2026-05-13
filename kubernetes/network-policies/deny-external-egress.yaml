@@ -1,0 +1,45 @@
+# Default Deny External Egress
+# Blocks all outbound traffic to the public internet
+# Only internal cluster traffic and explicitly allowed CIDRs are permitted
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-external-egress
+  namespace: observability
+spec:
+  podSelector: {}    # Applies to ALL pods in observability namespace
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS resolution (CoreDNS in kube-system)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Allow intra-namespace communication
+    - to:
+        - podSelector: {}
+
+    # Allow Kubernetes API server
+    - to:
+        - ipBlock:
+            cidr: 172.20.0.0/16  # Adjust to your cluster's service CIDR
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # Allow kubelet metrics scraping (cAdvisor, node exporter)
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 10250    # kubelet/cAdvisor
+        - protocol: TCP
+          port: 9100     # node-exporter

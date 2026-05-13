@@ -1,0 +1,52 @@
+# Prometheus Helm Values — Dev Environment
+
+prometheus:
+  server:
+    image:
+      repository: prom/prometheus
+      tag: "v2.51.0"
+
+    retention: 15d
+
+    persistentVolume:
+      enabled: true
+      storageClass: efs-sc
+      size: 10Gi
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+    # --- Remote Write (receives from Alloy) ---
+    remoteWrite: []
+
+    # --- Scrape Configs ---
+    # Alloy handles most scraping; Prometheus self-monitors
+    scrapeConfigs:
+      - job_name: prometheus
+        static_configs:
+          - targets: ["localhost:9090"]
+
+      - job_name: alloy
+        static_configs:
+          - targets: ["alloy.observability.svc:9090"]
+
+  # --- Alertmanager ---
+  alertmanager:
+    enabled: false
+
+  # --- Kube State Metrics ---
+  kube-state-metrics:
+    enabled: true
+
+  # --- Node Exporter ---
+  nodeExporter:
+    enabled: false  # Alloy handles node metrics collection
+
+  # --- Push Gateway ---
+  pushgateway:
+    enabled: false
